@@ -232,7 +232,111 @@ try:
 except (IOError,OSError) as eMsg:
 	print("Error (%s) rpy2 package is required to run Rv coefficient test")
 
-	
+
+'''
+Ted added the following defs on 2018_03_02. When the user has specified model_type "1D", 
+def calc1DMap is called, prior to creating individuals and their CD matrices, 
+in order to create a Map whose coordinates connect all the populations, 
+using UNICOR and uniform restistance at all grid points.  The map will 
+have grid dimenstions matching the feature maps, but will be masked with 
+NO_VALUE at points not in the single path that connects all the population.
+'''
+def calc1DMap( con_model_user_file, maps_list ):
+	'''
+	2018_03_02.  Call UNICORE on a resistance grid with uniform
+	resistance, and our populations' xy values, to get a map whose 
+	gridpoints are NO_VALUE, except where a single path connects the 
+	populations. Given a set of weights and the feature maps, the map 
+	is then used to quickly calculate a cost-distance matrix along the 
+	single path (c.f. def calcCDMatrix).
+	'''
+
+	one_dim_map=None
+
+	uni_resist_map=getUniformResistanceMap( maps_list )
+
+	grid_out_name=writeUniformResistanceGrid( uni_resist_map, maps_list )	
+
+	header_dict, data = FileIO.loadFile(con_model_user_file, header_lines = 21)
+
+	header_dict['Grid_Filename'] = grid_out_name
+
+	FileIO.outputGrid(con_model_user_file,['Pregenerated UNICOR File'], header_dict = header_dict)
+
+	one_dim_map = RunUNICOR(con_model_user_file)
+
+
+
+	return one_dim_map
+
+#end calc1DMap
+
+def writeUniformResistanceGrid( uni_resist_map, maps_list ):
+
+	grid_out_name = str(grid_filename.strip('.rsg')) + 'uni.resist.rsg'
+
+	FileIO.outputGrid(grid_out_name,
+							uni_resist_mapr, 
+							header_dict = maps_list[0].header_dict,keys = keys)
+
+	return grid_out_name
+#end writeUniformResistanceGrid
+
+
+def getUniformResistanceMap( maps_list ):
+	'''
+	2018_03_02. Ted added. 
+	Make a restistance grid with uniform
+	values, to supply def calc1DMap with the grid
+	needed for its call to UNICOR.
+
+	This def is based on the code in def buildRMap
+	'''
+	UNIFORM_RESISTANCE_VALUE=0.5
+
+	uni_resist_map=None
+
+	first_map=maps_list[0]
+
+	map_size = first_map.map_data.shape
+
+	uni_resist_map = np.zeros((map_size))
+
+	uni_resist_map+=UNIFORM_RESISTANCE_VALUE
+
+	'''
+	We mimic def buildRMap's per-map loop, but assign
+	only NODATA, so that our resulting map has the 
+	UNIFORM_RESISTANCE_VALUE at all grid points
+	except for those that have NODATA values in at 
+	least one of our feature maps:
+	'''
+	for i, feature_map in enumerate(maps_list):
+
+		########### DEVELOPER NOTE #################
+		# This algorithm is assuming
+		# points of NODATA are negative 
+		# and should be set to zero in case
+		# there is existing data from other maps for 
+		# these points and therefore will result 
+		# in a positive value when adding the layers together
+		############################################
+		
+		NODATA_val =float(feature_map.header_dict['NODATA_value'])
+
+		uni_resist_map[feature_map.map_data == NODATA_val] = 0.
+
+	#end for each map, set nodata values all to zero
+
+	#this adjustment assumes values of 0.0 are points of no data and should be ignored/set
+	#to the default NODATA_value
+	if 'NODATA_value' in feature_map.header_dict:
+		uni_resist_map[uni_resist_map == 0.0] = feature_map.header_dict['NODATA_value']
+	#end if we have a nodata value in our current maps header dict	
+
+	return uni_resist_map
+#end getUniformResistanceMap
+
 def buildRMap(gen_member,maps_list):
 	'''This function builds the resistance map from an input Pop member, and the 
 	maps list.  Output is a resistance map in GIS ascii format ready for UNICOR.
@@ -278,6 +382,33 @@ def buildRMap(gen_member,maps_list):
 	return res_map
 	
 '''
+2018_03_02. Ted added this def, abstracted from calcCDMatrix, the code that constructs a 
+cd_matrix and outputs a grid, in order to allow for the new 1D model type to more clearly 
+fit into the program.
+'''
+def makeResistanceGrid( member, member_idx, maps_list, grid_filename, log_handle, msg_verbose ):
+	FileIO.logMsg(log_handle,"Calculating cost-distance matrix for individual %s "%(member_idx+1),msg_verbose)
+	string = ''
+	for nums in member.wgt_tup:
+			string = string + '_' + str(nums)
+	grid_out_name = str(grid_filename.strip('.rsg')) + string+'.rsg'
+	res_map = buildRMap(member, maps_list)
+
+	FileIO.outputGrid(grid_out_name,res_map,header_dict = maps_list[0].header_dict,keys = keys)
+	return grid_out_name
+#end makeResistanceGrid
+
+def calc1DCDMatrix( member, one_dim_map ):
+	'''
+	2018_03_06.  Not yet implemented, should use the one_dim_map 
+	to calulcate a cd matrix by summing the weights along paths
+	to each non-indentical population.
+
+	'''
+	return
+#end calc1DCDMatrix
+
+'''
 2018_01_19, Ted adds a pram one_dim_map, to be used if the model_type is "1D." See remarks above 
 def load1dMap.
 '''
@@ -286,23 +417,23 @@ def calcCDMatrix(model_type,gen_list, maps_list, con_model_user_file,grid_filena
 	'''
 	for i, member in enumerate(gen_list):
 		if member.cd_matrix == None:
-			FileIO.logMsg(log_handle,"Calculating cost-distance matrix for individual %s "%(i+1),msg_verbose)
-			string = ''
-                        for nums in member.wgt_tup:
-                                string = string + '_' + str(nums)
-                        grid_out_name = str(grid_filename.strip('.rsg')) + string+'.rsg'
-			res_map = buildRMap(member, maps_list)
-			
-			FileIO.outputGrid(grid_out_name,res_map,header_dict = maps_list[0].header_dict,keys = keys)
-			
+			'''
+			2018_03_02 Note: Ted moved the code here that created the resitance grid, 
+			into a new def makeResistanceGrid, in order to add the 1d model_type, 
+			which will not use the grid.  Abstraction to more clearly add the new type.
+			'''
 			if model_type.lower() == 'least_cost': 
-                        	header_dict, data = FileIO.loadFile(con_model_user_file, header_lines = 21)
-                        	header_dict['Grid_Filename'] = grid_out_name
-                        	FileIO.outputGrid(con_model_user_file,['Pregenerated UNICOR File'], \
-						header_dict = header_dict)
+
+				grid_out_name=makeResistanceGrid( member, i, maps_list, grid_filename, log_handle, msg_verbose )
+				header_dict, data = FileIO.loadFile(con_model_user_file, header_lines = 21)
+				header_dict['Grid_Filename'] = grid_out_name
+				FileIO.outputGrid(con_model_user_file,['Pregenerated UNICOR File'], \
+				header_dict = header_dict)
 				member.cd_matrix = RunUNICOR(con_model_user_file)
+
 			elif model_type.lower() == 'resistance':
-						
+
+				grid_out_name = makeResistanceGrid( member, maps_list, grid_filename, log_handle, msg_verbose )
 				log.profile('Start Circuitscape Run',verboseOverride =True)
 				replace_file_line(con_model_user_file,'habitat_file =', 'habitat_file = ' + \
 											grid_out_name + '\n') 
@@ -328,7 +459,10 @@ def calcCDMatrix(model_type,gen_list, maps_list, con_model_user_file,grid_filena
 				for now simply a cd matrix read in from a file.
 				'''
 				if  one_dim_map is not None:
+
 					member.cd_matrix=one_dim_map
+
+					calc1DCDMatrix( member, one_dim_map )
 				else:
 					print 'The model type is specified as \"1D\" but there is no 1D map.'
 					sys.exit(-1)
@@ -367,13 +501,11 @@ def calcFitness(gen_list, genetic_dist_ary,gen_counts_ary,ed_dist_ary,test_type,
 	poor_fit_constant = 0.001
 	
 	for member in gen_list:
-	
 
 		#v1.1 BKH adding new test type Rv coefficient
 		#Going to make this test happen no matter what as well
 		#may need to change this later on
 		
-
 		#create an r object to perform differnt functions
 		r = robjects.r
 		
@@ -381,7 +513,6 @@ def calcFitness(gen_list, genetic_dist_ary,gen_counts_ary,ed_dist_ary,test_type,
 		importr('permute',lib_loc=R_lib_home) 
 		ade4 = importr('ade4',lib_loc=R_lib_home)
 		vegan = importr('vegan',lib_loc=R_lib_home)	
-		
 		
 		#wrap the as.dist function to make it easier to call
 		asdist = r['as.dist']	
@@ -1059,6 +1190,16 @@ def main(*arguements):
 	#dictionary is created to handle all the weight information for different map inputs.
 	feature_map_filenames = rip.kwdGetValue('feature_map_filenames')
 	weight_dict = createWeightDict(feature_map_filenames)
+
+
+	'''
+	2018_03_02. When the model type read in from the input file
+	is of type "1D", this parameter will be reassigned a map
+	of the 1-d path connecting populations, as calculated by
+	UNICOR using euclidian distance only (i.e. equal resistiance
+	values, map-wide).  See def calc1DMap.
+	'''
+	one_dim_map=None
 	
 	# Read in the main input parameters from the input file
 	con_model_user_file = rip.kwdGetValue('con_model_user_file')
@@ -1081,8 +1222,6 @@ def main(*arguements):
 	model_type = rip.kwdGetValue('model_type')
 
 	gen_counts_file = rip.kwdGetValue('gen_counts_filename')
-	one_dim_map_filename = rip.kwdGetValue( 'one_dim_map_filename' )
-		
 	
 	L = sumClasses(weight_dict)
 	m_rate = num_mutations/float(children_per_gen*L)
@@ -1161,11 +1300,13 @@ def main(*arguements):
 		ed_dist_ary = None
 	
 	'''
-	Ted added 2018_01_19.
+	Ted added 2018_01_19. If the model type is 1D, we'll
+	make a 1d map that can be used to calculate cd matrices.
+	(instead of calling UNICORE, or Circuitscape).
 	'''
-	if one_dim_map_filename != 'None' and one_dim_map_filename is not None:
+	if model_type == "1D":
 		try:
-			one_dim_map=load1dMap( one_dim_map_filename )
+			one_dim_map=calc1DMap(  con_model_user_file, maps_list )  
 		except Exception as eMsg:
 			print("Error (%s) opening session logfile(%s)"%(eMsg,one_dim_map_filename))
 			print("Check that the 1-dimensional map is available or if \
@@ -1187,12 +1328,33 @@ def main(*arguements):
 	FileIO.logMsg(log_handle,"max_generations %s"%(max_gens),msg_verbose)
 	FileIO.logMsg(log_handle,"max_time %s"%(max_time),msg_verbose)
 	FileIO.logMsg(log_handle,"Weight Dictionary %s "%(weight_dict),msg_verbose)
+
 	#Create and load our data maps
 	for variable, traits_dict in weight_dict.iteritems():
 		maps_list.append(Maps(variable, traits_dict,header_lines))
+	#end for each weight_dict_item
 	
+	'''
+	Ted added 2018_01_19. If the model type is 1D, we'll
+	make a 1d map that can be used to calculate cd matrices.
+	(instead of calling UNICORE, or Circuitscape).
+	'''
+	if model_type == "1D":
+		try:
+			one_dim_map=calc1DMap(  con_model_user_file, maps_list ) 
+		except Exception as eMsg:
+			print("Error (%s) opening session logfile(%s)"%(eMsg,one_dim_map_filename))
+			print("Check that the 1-dimensional map is available or if \
+					not, remove the one_dim_map_filename entry and use a model_type  \
+					other than \"1D\"" )
 	
-	
+			sys.exit(-1)
+
+		#end try ... except	
+	else:
+		one_dim_map=None
+	#end if 1d map file name exists, else No map
+
 	
 	#Does the hotstart setup.
 	if hot_start:
