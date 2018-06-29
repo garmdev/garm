@@ -760,8 +760,8 @@ def mutation(pres_gen_list,m_rate,weight_dict,previous_pop_dict,all_members_list
 			all_members_list.append(member)
 			pres_gen_list.remove(member)	
 			pres_gen_list.append(new_member)	
-		
-		
+			add_visited( previous_pop_dict, new_member )
+
 def propFitSelection(gen_list, num_elites, gen_pop_size,previous_pop_dict,all_members_list):
 	'''
 	Do proportional fitness calculations using a given
