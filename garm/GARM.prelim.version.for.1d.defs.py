@@ -405,6 +405,7 @@ def calc1DCDMatrix( member, one_dim_map ):
 	to each non-indentical population.
 
 	'''
+
 	return
 #end calc1DCDMatrix
 
@@ -759,7 +760,6 @@ def mutation(pres_gen_list,m_rate,weight_dict,previous_pop_dict,all_members_list
 			all_members_list.append(member)
 			pres_gen_list.remove(member)	
 			pres_gen_list.append(new_member)	
-			add_visited(previous_pop_dict,new_member)
 		
 		
 def propFitSelection(gen_list, num_elites, gen_pop_size,previous_pop_dict,all_members_list):
@@ -1299,27 +1299,7 @@ def main(*arguements):
 	else: 
 		ed_dist_ary = None
 	
-	'''
-	Ted added 2018_01_19. If the model type is 1D, we'll
-	make a 1d map that can be used to calculate cd matrices.
-	(instead of calling UNICORE, or Circuitscape).
-	'''
-	if model_type == "1D":
-		try:
-			one_dim_map=calc1DMap(  con_model_user_file, maps_list )  
-		except Exception as eMsg:
-			print("Error (%s) opening session logfile(%s)"%(eMsg,one_dim_map_filename))
-			print("Check that the 1-dimensional map is available or if \
-					not, remove the one_dim_map_filename entry and use a model_type  \
-					other than \"1D\"" )
 	
-			sys.exit(-1)
-
-		#end try ... except	
-	else:
-		one_dim_map=None
-	#end if 1d map file name exists, else No map
-
 	#Write starting conditions to log file and to screen if msg_verbose is true.
 	FileIO.logMsg(log_handle,"m_rate %s"%(m_rate *(children_per_gen*L)),msg_verbose)
 	FileIO.logMsg(log_handle,"t_size %s"%(t_size),msg_verbose)
@@ -1354,7 +1334,6 @@ def main(*arguements):
 	else:
 		one_dim_map=None
 	#end if 1d map file name exists, else No map
-
 	
 	#Does the hotstart setup.
 	if hot_start:
